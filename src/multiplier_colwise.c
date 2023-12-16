@@ -16,21 +16,19 @@ void process_error(int err){
         MPI_Error_string(err, str, &str_len);
 
         printf("Error: %s, length: %d\n", str, str_len);
+
+        free(str);
     }
 }
 
-char* build_matrix_filename(long int n_rows, long int n_cols){
-    char* filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+void build_matrix_filename(long int n_rows, long int n_cols, char* filename){
     sprintf(filename, "matrix_%ld_%ld.txt", n_rows, n_cols);
-
-    return filename;
+    return;
 }
 
-char* build_vector_filename(long int n_elems){
-    char* filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+void build_vector_filename(long int n_elems, char* filename){
     sprintf(filename, "vector_%ld.txt", n_elems);
-
-    return filename;
+    return;
 }
 
 
@@ -48,7 +46,8 @@ int read_nums_from_file(long int n_elems, int local_n, int my_rank, int comm_sz,
     double* vector;
 
     if (my_rank == MAIN_PROCESS){
-        char* body = build_vector_filename(n_elems);
+        char* body = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+        build_vector_filename(n_elems, body);
         char filename[MAX_FILENAME_LENGTH] = "./data/";
         strcat(filename, body);
         // printf("Before free\n");
@@ -87,8 +86,8 @@ int read_nums_from_file(long int n_elems, int local_n, int my_rank, int comm_sz,
 
     process_error(error);
 
-    // if (my_rank == MAIN_PROCESS)
-    //     free(vector);
+    if (my_rank == MAIN_PROCESS)
+        free(vector);
 
     return 0;
 }
@@ -118,7 +117,8 @@ int read_matrix_from_file(double* local_matr, long int local_n, long int n_rows,
 
 
     if (my_rank == MAIN_PROCESS){
-        char* body = build_matrix_filename(n_rows, n_cols);
+        char* body = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+        build_matrix_filename(n_rows, n_cols, body);
         char filename[MAX_FILENAME_LENGTH] = "./data/";
         strcat(filename, body);
         // printf("Before free\n");
@@ -275,6 +275,8 @@ int read_matrix_from_file(double* local_matr, long int local_n, long int n_rows,
         );
         process_error(error);
 
+        free(matrix);
+
         // print_matr(local_matr, n_rows, local_n, -100);
 
     }
@@ -294,11 +296,9 @@ int read_matrix_from_file(double* local_matr, long int local_n, long int n_rows,
     }
 
     printf("AFTER TRANSPORTATION\n");
-
-    // free(matrix);
     
 
-    MPI_Type_free(&mpi_vec);
+    error = MPI_Type_free(&mpi_vec);
 
     process_error(error);
 
@@ -343,6 +343,8 @@ void multiply_colwise(double* local_matr, double* nums, long int n_rows, long in
         MPI_COMM_WORLD
     );
 
+    free(columns);
+
 
     // double* matrix = (double*) malloc(n_rows * n_cols * sizeof(double));
 
@@ -381,14 +383,16 @@ int main(int argc, char** argv){
 
     double* local_matr = malloc(local_n * n_rows * sizeof(double));
     double* nums = malloc(local_n * sizeof(double));
-    double* local_result = (double*) malloc(local_n * sizeof(double));
     double* result = (double*) malloc(n_rows * sizeof(double));
 
     int error;
 
     error = read_matrix_from_file(local_matr, local_n, n_rows, n_cols, my_rank, comm_sz, MPI_COMM_WORLD);
     if (error == -1){
-        printf("Unable to locate matrix file '%s'\n", build_matrix_filename(n_rows, n_cols));
+        char* filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+        build_matrix_filename(n_rows, n_cols, filename);
+        printf("Unable to locate matrix file '%s'\n", filename);
+        free(filename);
         return 0;
     }
     // if (my_rank == comm_sz - 1)
@@ -396,7 +400,10 @@ int main(int argc, char** argv){
 
     error = read_nums_from_file(n_cols, local_n, my_rank, comm_sz, MPI_COMM_WORLD, nums);
     if (error == -1){
-        printf("Unable to locate initial vector file '%s'\n", build_vector_filename(n_cols));
+        char* filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+        build_vector_filename(n_cols, filename);
+        printf("Unable to locate initial vector file '%s'\n", filename);
+        free(filename);
         return 0;
     }
     // if (my_rank == comm_sz - 1)
@@ -423,7 +430,6 @@ int main(int argc, char** argv){
 
     free(local_matr);
     free(result);
-    free(local_result);
     free(nums);
 
     MPI_Finalize();
