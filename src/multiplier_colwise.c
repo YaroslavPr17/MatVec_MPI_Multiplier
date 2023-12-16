@@ -5,12 +5,14 @@
 
 #define MAX_FILENAME_LENGTH 128
 #define MAIN_PROCESS 0
+#define STR_DEFAULT_LENGTH 128
+#define SUBMATR_TAG 15
 
 void process_error(int err){
     if (err != MPI_SUCCESS){
         printf("Error %d\n", err);
 
-        char* str = malloc(128 * sizeof(char));
+        char* str = malloc(STR_DEFAULT_LENGTH * sizeof(char));
         int str_len; 
 
         MPI_Error_string(err, str, &str_len);
@@ -254,7 +256,7 @@ int read_matrix_from_file(double* local_matr, long int local_n, long int n_rows,
                 n_rows * local_n,
                 MPI_DOUBLE,
                 i,
-                15,
+                SUBMATR_TAG,
                 MPI_COMM_WORLD
             );
             process_error(error);
@@ -287,7 +289,7 @@ int read_matrix_from_file(double* local_matr, long int local_n, long int n_rows,
             n_rows * local_n, 
             MPI_DOUBLE,
             MAIN_PROCESS,
-            15, 
+            SUBMATR_TAG, 
             MPI_COMM_WORLD, 
             MPI_STATUS_IGNORE
         );
