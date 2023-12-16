@@ -376,7 +376,7 @@ int main(int argc, char** argv){
 
     if (my_rank == MAIN_PROCESS){
         if (n_cols % comm_sz != 0){
-            printf("\nERROR!!!\n%ld mod %d = %ld. Unable to parallellize task.\n", n_rows, comm_sz, n_rows % comm_sz);
+            printf("\nERROR!!!\n%ld mod %d = %ld. Unable to parallellize task.\n", n_cols, comm_sz, n_rows % comm_sz);
             return 0;
         }
     }
