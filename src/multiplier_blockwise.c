@@ -14,20 +14,6 @@
 #define N_DIVIDERS 2
 
 
-void multiply_rowwise(double* matrix, double* vector, long int n_rows, long int n_cols, double* result){
-    for (long int i = 0; i < n_rows; ++i){
-        double sum = 0;
-        for (long int j = 0; j < n_cols; ++j){
-            sum += matrix[i * n_cols + j] * vector[j]; 
-        }
-        result[i] = sum;
-    }
-
-    return;
-}
-
-
-
 void distribute_data(double* matrix, double* vector, int comm_sz_rows, int comm_sz_cols, long int n_rows, long int n_cols, int my_rank, MPI_Comm comm, double* local_matr, double* local_vec){
 
     int local_n_rows = n_rows / comm_sz_rows;
@@ -292,6 +278,19 @@ int main(int argc, char** argv){
             printf("\nERROR!!!\n%lld mod %d = %lld. Unable to parallellize task.\n", all_count, comm_sz, all_count % comm_sz);
             return 0;
         }        
+
+        char* new_file_name = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+        sprintf(new_file_name, "blockwise_%ld_%ld.csv", n_rows, n_cols);
+
+        if (fopen(new_file_name, "r") == NULL){
+            FILE* fp = fopen(new_file_name, "w");
+            if (fp == NULL){
+                printf("Unable to create output file.\n");
+                return 0;
+            }
+            fprint(fp, "n_rows, n_cols, n_processes, time\n");
+        }
+
     }
 
     int* layout = malloc(N_DIVIDERS * sizeof(long int));
@@ -361,7 +360,7 @@ int main(int argc, char** argv){
     
     distribute_data(matrix, vector, comm_sz_rows, comm_sz_cols, n_rows, 
                     n_cols, my_rank, MPI_COMM_WORLD, local_matr, local_vec);
-    multiply_rowwise(local_matr, local_vec, local_n_rows, local_n_cols, local_res);
+    multiply_std_rowwise(local_matr, local_vec, local_n_rows, local_n_cols, local_res);
     gather_local_results(local_res, comm_sz_rows, comm_sz_cols, n_rows, n_cols, my_rank, MPI_COMM_WORLD, result);
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -369,23 +368,31 @@ int main(int argc, char** argv){
     double local_elapsed = finish - start;
     MPI_Reduce(&local_elapsed, &elapsed, 1, MPI_DOUBLE, MPI_MAX, MAIN_PROCESS, MPI_COMM_WORLD);
 
-    if (my_rank == MAIN_PROCESS){
-        printf("RESULT:\n");
-        print_vec(result, n_rows, -1);
-        printf("Elapsed time: %f s\n", elapsed);
-    }
-
-
     free(local_matr);
     free(local_vec);
     free(local_res);
+
+    MPI_Finalize();
+
     if (my_rank == MAIN_PROCESS){
+        print_vec(result, n_rows, -1);
+        // printf("Elapsed time: %f s\n", elapsed);
+
+        char* new_filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+        sprintf(new_filename, "blockwise_%ld_%ld.csv", n_rows, n_cols);
+
+        FILE* fp = fopen(new_filename, "a+");
+        if (fp == NULL){
+            printf("Unable to open output file.\n");
+            return 0;
+        }
+        fprint(fp, "n_rows, n_cols, n_processes, time\n");
+        fprintf(fp, "%ld, %ld, %d, %lf\n");
+
         free(result);
         free(vector);
         free(matrix);
     }
-
-    MPI_Finalize();
 
     return 0;
 }

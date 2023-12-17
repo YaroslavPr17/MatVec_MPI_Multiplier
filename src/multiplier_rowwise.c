@@ -52,20 +52,6 @@ void distribute_data (double* matrix, double* vector, long int n_rows, long int 
 }
 
 
-void multiply_rowwise(double* local_matr, double* vector, long int n_rows, long int n_cols, double* result){
-    for (long int i = 0; i < n_rows; ++i){
-        double sum = 0;
-        for (long int j = 0; j < n_cols; ++j){
-            sum += local_matr[i * n_cols + j] * vector[j]; 
-        }
-        result[i] = sum;
-    }
-
-    return;
-}
-
-
-
 int main(int argc, char** argv){
     int error;
 
@@ -88,7 +74,17 @@ int main(int argc, char** argv){
             return 0;
         }
 
+        char* new_file_name = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+        sprintf(new_file_name, "rowwise_%ld_%ld.csv", n_rows, n_cols);
 
+        if (fopen(new_file_name, "r") == NULL){
+            FILE* fp = fopen(new_file_name, "w");
+            if (fp == NULL){
+                printf("Unable to create output file.\n");
+                return 0;
+            }
+            fprint(fp, "n_rows, n_cols, n_processes, time\n");
+        }
     }
 
     long int local_n = n_rows / comm_sz;
@@ -150,7 +146,7 @@ int main(int argc, char** argv){
     MPI_Barrier(MPI_COMM_WORLD);
     start = MPI_Wtime();
 
-    multiply_rowwise(local_matr, vector, local_n, n_cols, local_result);
+    multiply_std_rowwise(local_matr, vector, local_n, n_cols, local_result);
     // print_matr(local_matr, local_n, n_cols, my_rank);
     // print_vec(local_result, local_n, my_rank);
 
@@ -161,20 +157,29 @@ int main(int argc, char** argv){
 
     MPI_Gather(local_result, local_n, MPI_DOUBLE, result, local_n, MPI_DOUBLE, MAIN_PROCESS, MPI_COMM_WORLD);
 
-    if (my_rank == MAIN_PROCESS){
-        print_vec(result, n_rows, -1);
-        printf("Elapsed time: %f s\n", elapsed);
-    }
-
-    if (my_rank == MAIN_PROCESS){
-        free(matrix);
-        free(result);
-    }
     free(vector);
     free(local_matr);
     free(local_result);
 
     MPI_Finalize();
+
+    if (my_rank == MAIN_PROCESS){
+        print_vec(result, n_rows, -1);
+        // printf("Elapsed time: %f s\n", elapsed);
+        char* new_filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+        sprintf(new_filename, "rowwise_%ld_%ld.csv", n_rows, n_cols);
+
+        FILE* fp = fopen(new_filename, "a+");
+        if (fp == NULL){
+            printf("Unable to open output file.\n");
+            return 0;
+        }
+        fprint(fp, "n_rows, n_cols, n_processes, time\n");
+        fprintf(fp, "%ld, %ld, %d, %lf\n");
+
+        free(matrix);
+        free(result);
+    }
 
     return 0;
 }

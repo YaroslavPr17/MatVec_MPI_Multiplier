@@ -260,6 +260,20 @@ int main(int argc, char** argv){
             printf("\nERROR!!!\n%ld mod %d = %ld. Unable to parallellize task.\n", n_cols, comm_sz, n_rows % comm_sz);
             return 0;
         }
+
+        char* new_file_name = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+        sprintf(new_file_name, "colwise_%ld_%ld.csv", n_rows, n_cols);
+
+        if (fopen(new_file_name, "r") == NULL){
+            FILE* fp = fopen(new_file_name, "w");
+            if (fp == NULL){
+                printf("Unable to create output file.\n");
+                return 0;
+            }
+            fprint(fp, "n_rows, n_cols, n_processes, time\n");
+        }
+
+
     }
 
     long int local_n = n_cols / comm_sz;
@@ -332,22 +346,33 @@ int main(int argc, char** argv){
     double local_elapsed = finish - start;
     MPI_Reduce(&local_elapsed, &elapsed, 1, MPI_DOUBLE, MPI_MAX, MAIN_PROCESS, MPI_COMM_WORLD);
 
+
+    free(local_matr);
+    free(local_vec);
+
+    MPI_Finalize();
+
     if (my_rank == MAIN_PROCESS){
         printf("RESULT:\n");
         print_vec(result, n_rows, -1);
         printf("Elapsed time: %f s\n", elapsed);
-    }
 
+        char* new_filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+        sprintf(new_filename, "colwise_%ld_%ld.csv", n_rows, n_cols);
 
-    free(local_matr);
-    free(local_vec);
-    if (my_rank == MAIN_PROCESS){
+        FILE* fp = fopen(new_filename, "a+");
+        if (fp == NULL){
+            printf("Unable to open output file.\n");
+            return 0;
+        }
+        fprint(fp, "n_rows, n_cols, n_processes, time\n");
+        fprintf(fp, "%ld, %ld, %d, %lf\n");
+
         free(result);
         free(vector);
         free(matrix);
     }
 
-    MPI_Finalize();
 
     return 0;
 }

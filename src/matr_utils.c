@@ -78,3 +78,16 @@ int load_vec(long int n_rows,  double* vector){
 
     return 0;
 }
+
+
+void multiply_std_rowwise(double* matrix, double* vector, long int n_rows, long int n_cols, double* result){
+    for (long int i = 0; i < n_rows; ++i){
+        double sum = 0;
+        for (long int j = 0; j < n_cols; ++j){
+            sum += matrix[i * n_cols + j] * vector[j]; 
+        }
+        result[i] = sum;
+    }
+
+    return;
+}

@@ -7,6 +7,7 @@ void print_matr(double* matr, long int n_rows, long int n_cols, int proc_num);
 void print_vec(double* vec, long int n_elems, int proc_num);
 int load_matr(long int n_rows, long int n_cols, double* matrix);
 int load_vec(long int n_rows,  double* vector);
+void multiply_std_rowwise(double* matrix, double* vector, long int n_rows, long int n_cols, double* result);
 
 
 #endif /* MATR_UTILS_H */
