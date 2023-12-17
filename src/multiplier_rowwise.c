@@ -3,121 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_FILENAME_LENGTH 128
-#define MAIN_PROCESS 0
+
+#include "matr_utils.h"
+#include "utils.h"
+#include "constants.h"
 
 
-char* build_matrix_filename(long int n_rows, long int n_cols){
-    char* filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
-    sprintf(filename, "matrix_%ld_%ld.txt", n_rows, n_cols);
 
-    return filename;
-}
-
-char* build_vector_filename(long int n_elems){
-    char* filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
-    sprintf(filename, "vector_%ld.txt", n_elems);
-
-    return filename;
-}
-
-
-void print_vec(double* vec, long int n_elems, int proc_num){
-    printf("%d\tVECTOR:\n", proc_num);
-    for (long int i = 0; i < n_elems; ++i){
-        printf("%lf\n", vec[i]);
-    }
-    return;
-}
-
-
-int read_vector_from_file(long int n_elems, int my_rank, int comm_sz, MPI_Comm comm, double* vector){
-
-    if (my_rank == MAIN_PROCESS){
-        char* body = build_vector_filename(n_elems);
-        char filename[MAX_FILENAME_LENGTH] = "./data/";
-        strcat(filename, body);
-        free(body);
-        printf("Reading vector from file '%s'...\n", filename);
-
-        FILE *fp = fopen(filename, "r");
-        if (fp == NULL){ 
-            return -1;
-        }
-
-        for (long int i = 0; i < n_elems; ++i){
-            fscanf(fp, "%lf", &vector[i]); 
-        }
-    }
-
-    int error;
-
-    // printf("%d, %d, %d, %d, %d, %d\n", 
-    //     MPI_SUCCESS, MPI_ERR_BUFFER, MPI_ERR_COMM,
-    //     MPI_ERR_COUNT, MPI_ERR_TYPE, MPI_ERR_OTHER);
-
-    MPI_Bcast(
-        vector,
-        n_elems,
-        MPI_DOUBLE,
-        MAIN_PROCESS,
-        comm
-    );
-
-    // if (error != MPI_SUCCESS){
-    //     printf("Error %d\n", error);
-
-    //     char* str = malloc(128 * sizeof(char));
-    //     int str_len; 
-
-    //     MPI_Error_string(error, str, &str_len);
-
-    //     printf("Error: %s, length: %d\n", str, str_len);
-
-    // }
-
-    return 0;
-}
-
-
-void print_matr(double* matr, long int n_rows, long int n_cols, int proc_num){
-    printf("%d\tMATRIX:\n", proc_num);
-    for (long int i = 0; i < n_rows; ++i){
-        for (long int j = 0; j < n_cols; ++j){
-            printf("%lf ", matr[i * n_cols + j]);
-        }   
-        printf("\n");
-    }
-    return;
-}
-
-
-int read_matrix_from_file(double* local_matr, long int local_n, long int n_rows, long int n_cols, int my_rank, int comm_sz, MPI_Comm comm){
-    double* matrix;
-
-    if (my_rank == MAIN_PROCESS){
-        char* body = build_matrix_filename(n_rows, n_cols);
-        char filename[MAX_FILENAME_LENGTH] = "./data/";
-        strcat(filename, body);
-        free(body);
-        printf("Reading matrix from file '%s'...\n", filename);
-
-        matrix = (double*) malloc(n_rows * n_cols * sizeof(double));
-
-        FILE *fp = fopen(filename, "r");
-        if (fp == NULL){
-            return -1;
-        }
-
-        for (long int i = 0; i < n_rows; ++i){
-            for (long int j = 0; j < n_cols; ++j){
-                fscanf(fp, "%lf", &matrix[i * n_cols + j]);
-            }   
-        }
-
-        // print_matr(matrix, n_rows, n_cols, -1);
-    }
-
+void distribute_data (double* matrix, double* vector, long int n_rows, long int n_cols, long int local_n, int my_rank, int comm_sz, MPI_Comm comm, double* local_matr){
     int error;
 
     if (my_rank == MAIN_PROCESS){
@@ -131,8 +24,6 @@ int read_matrix_from_file(double* local_matr, long int local_n, long int n_rows,
             MAIN_PROCESS,
             comm
         );
-
-        free(matrix);
     }
     else {
         error = MPI_Scatter(
@@ -146,13 +37,18 @@ int read_matrix_from_file(double* local_matr, long int local_n, long int n_rows,
             comm
         );
     }
+    process_error(error);
 
-    if (error != MPI_SUCCESS)
-        printf("Error %d\n", error);
-    else
-        printf("Success!\n");
+    error = MPI_Bcast(
+        vector,
+        n_cols,
+        MPI_DOUBLE,
+        MAIN_PROCESS,
+        comm
+    );
+    process_error(error);
 
-    return 0;
+    return;
 }
 
 
@@ -171,6 +67,8 @@ void multiply_rowwise(double* local_matr, double* vector, long int n_rows, long 
 
 
 int main(int argc, char** argv){
+    int error;
+
     long int n_rows = strtol(argv[1], NULL, 10);
     long int n_cols = strtol(argv[2], NULL, 10);
 
@@ -195,31 +93,65 @@ int main(int argc, char** argv){
 
     long int local_n = n_rows / comm_sz;
 
-    double* local_matr = malloc(local_n * n_cols * sizeof(double));
-    double* vector = malloc(n_cols * sizeof(double));
+    double* matrix;
+    double* result;
+    double* vector = (double*) malloc(n_cols * sizeof(double));
+
+
+    if (my_rank == MAIN_PROCESS){
+        printf("n_rows = %ld\n", n_rows);
+        printf("n_cols = %ld\n", n_cols);
+        printf("local_n = %ld\n", local_n);
+        printf("comm_sz = %d\n", comm_sz);
+        printf("my_rank = %d\n", my_rank);
+
+        matrix = (double*) malloc(n_rows * n_cols * sizeof(double));
+        result = (double*) malloc(n_rows * sizeof(double));
+
+
+        if (my_rank == MAIN_PROCESS){
+            error = load_matr(n_rows, n_cols, matrix);
+            if (error == -1){
+                char* filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+                build_matrix_filename(n_rows, n_cols, filename);
+                printf("Unable to locate matrix file '%s'\n", filename);
+                free(filename);
+                return 0;
+            }
+            
+            // print_matr(matrix, n_rows, n_cols, -1);
+        }
+
+        if (my_rank == MAIN_PROCESS){
+            error = load_vec(n_cols, vector);
+            if (error == -1){
+                char* filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+                build_vector_filename(n_cols, filename);
+                printf("Unable to locate vector file '%s'\n", filename);
+                free(filename);
+                return 0;
+            }
+            
+            // print_vec(vector, n_cols, -1);
+        }
+    }
+    // if (my_rank == MAIN_PROCESS){
+    //     print_matr(matrix, n_rows, n_cols, my_rank);
+    //     print_vec(vector, n_cols, my_rank);
+    // }
+
+    double* local_matr = (double*) malloc(local_n * n_cols * sizeof(double));
     double* local_result = (double*) malloc(local_n * sizeof(double));
-    double* result = (double*) malloc(n_rows * sizeof(double));
 
-    int error;
-
-    error = read_matrix_from_file(local_matr, local_n, n_rows, n_cols, my_rank, comm_sz, MPI_COMM_WORLD);
-    if (error == -1){
-        printf("Unable to locate matrix file '%s'\n", build_matrix_filename(n_rows, n_cols));
-        return 0;
-    }
+    distribute_data(matrix, vector, n_rows, n_cols, local_n, my_rank, comm_sz, MPI_COMM_WORLD, local_matr);
     // print_matr(local_matr, local_n, n_cols, my_rank);
-
-    error = read_vector_from_file(n_cols, my_rank, comm_sz, MPI_COMM_WORLD, vector);
-    if (error == -1){
-        printf("Unable to locate vector file '%s'\n", build_vector_filename(n_cols));
-        return 0;
-    }
     // print_vec(vector, n_cols, my_rank);
 
     MPI_Barrier(MPI_COMM_WORLD);
     start = MPI_Wtime();
 
     multiply_rowwise(local_matr, vector, local_n, n_cols, local_result);
+    // print_matr(local_matr, local_n, n_cols, my_rank);
     // print_vec(local_result, local_n, my_rank);
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -234,10 +166,13 @@ int main(int argc, char** argv){
         printf("Elapsed time: %f s\n", elapsed);
     }
 
-    free(local_matr);
-    free(result);
-    free(local_result);
+    if (my_rank == MAIN_PROCESS){
+        free(matrix);
+        free(result);
+    }
     free(vector);
+    free(local_matr);
+    free(local_result);
 
     MPI_Finalize();
 
