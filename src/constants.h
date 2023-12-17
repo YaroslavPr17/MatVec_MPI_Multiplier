@@ -1,0 +1,8 @@
+#ifndef CONSTANTS_H
+#define CONSTANTS_H
+
+#define MAX_FILENAME_LENGTH 128
+#define MAIN_PROCESS 0
+#define STR_DEFAULT_LENGTH 128
+
+#endif /* CONSTANTS_H */
