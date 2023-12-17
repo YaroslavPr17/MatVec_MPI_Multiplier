@@ -8,6 +8,7 @@
 #define MAIN_PROCESS 0
 #define STR_DEFAULT_LENGTH 128
 #define SUBMATR_TAG 15
+#define SUBVEC_TAG 25
 #define N_DIVIDERS 2
 
 void process_error(int err){
@@ -54,7 +55,7 @@ void build_vector_filename(long int n_elems, char* filename){
 void print_vec(double* vec, long int n_elems, int proc_num){
     printf("%d\tVECTOR:\n", proc_num);
     for (long int i = 0; i < n_elems; ++i){
-        printf("%lf\n", vec[i]);
+        printf("%d\t%lf\n", proc_num, vec[i]);
     }
     return;
 }
@@ -117,13 +118,30 @@ int load_vec(long int n_rows,  double* vector){
 }
 
 
-int distribute_data(double* matrix, double* vector, long int local_n, long int local_n_cols, long int n_rows, long int n_cols, int my_rank, int comm_sz, MPI_Comm comm, double* local_matr, double* local_vec){
+void multiply_rowwise(double* matrix, double* vector, long int n_rows, long int n_cols, double* result){
+    for (long int i = 0; i < n_rows; ++i){
+        double sum = 0;
+        for (long int j = 0; j < n_cols; ++j){
+            sum += matrix[i * n_cols + j] * vector[j]; 
+        }
+        result[i] = sum;
+    }
+
+    return;
+}
+
+
+
+void distribute_data(double* matrix, double* vector, int comm_sz_rows, int comm_sz_cols, long int n_rows, long int n_cols, int my_rank, MPI_Comm comm, double* local_matr, double* local_vec){
+
+    int local_n_rows = n_rows / comm_sz_rows;
+    int local_n_cols = n_cols / comm_sz_cols;
 
     MPI_Datatype mpi_vec;
 
     MPI_Type_vector(
-        n_rows,
-        local_n,
+        local_n_rows,
+        local_n_cols,
         n_cols,
         MPI_DOUBLE,
         &mpi_vec
@@ -133,7 +151,7 @@ int distribute_data(double* matrix, double* vector, long int local_n, long int l
 
     int error;
     
-    printf("BEFORE TRANSPORTATION\n");
+    // printf("BEFORE TRANSPORTATION\n");
 
     if (my_rank == MAIN_PROCESS){
 
@@ -144,35 +162,50 @@ int distribute_data(double* matrix, double* vector, long int local_n, long int l
         int pack_size;
         MPI_Pack_size(1, mpi_vec, MPI_COMM_WORLD, &pack_size);
 
-        for (int i = 1; i < comm_sz; ++i){
+        for (int i = 0; i < comm_sz_rows; ++i){
+            for (int j = 0; j < comm_sz_cols; ++j){
+                if (i == 0 && j == 0)
+                    continue;
 
-            position = 0;
+                position = 0;
 
-            // printf("Packing (%d)...\n", i);
-            error = MPI_Pack(
-                &matrix[i * local_n],
-                1,
-                mpi_vec,
-                local_matr,
-                pack_size,
-                &position,
-                MPI_COMM_WORLD
-            );
-            process_error(error);
+                // printf("Packing (%d)...\n", i);
+                error = MPI_Pack(
+                    &matrix[i * local_n_rows * n_cols + j * local_n_cols],
+                    1,
+                    mpi_vec,
+                    local_matr,
+                    pack_size,
+                    &position,
+                    MPI_COMM_WORLD
+                );
+                process_error(error);
 
-            // printf("Sending (%d)...\n", i);
-            error = MPI_Send(
-                local_matr,
-                n_rows * local_n,
-                MPI_DOUBLE,
-                i,
-                SUBMATR_TAG,
-                MPI_COMM_WORLD
-            );
-            process_error(error);
+                // printf("Sending (%d)...\n", i);
+                error = MPI_Send(
+                    local_matr,
+                    local_n_rows * local_n_cols,
+                    MPI_DOUBLE,
+                    i * comm_sz_cols + j,
+                    SUBMATR_TAG,
+                    MPI_COMM_WORLD
+                );
+                process_error(error);
+
+
+                error = MPI_Send(
+                    &vector[j * local_n_cols],
+                    local_n_cols,
+                    MPI_DOUBLE,
+                    i * comm_sz_cols + j,
+                    SUBVEC_TAG,
+                    MPI_COMM_WORLD
+                );
+                process_error(error);
+
+
+            }
         }
-
-        // print_matr(matrix, n_rows, n_cols, -1);
 
         position = 0;
 
@@ -187,16 +220,15 @@ int distribute_data(double* matrix, double* vector, long int local_n, long int l
         );
         process_error(error);
 
-        free(matrix);
+        // print_matr(local_matr, local_n_rows, local_n_cols, my_rank);
 
-        // print_matr(local_matr, n_rows, local_n, -100);
+        memcpy(local_vec, &vector[0], local_n_cols * sizeof(double));
 
     }
     else {
-        // printf("Receiving (%d)...\n", my_rank);
         error = MPI_Recv( 
             &local_matr[0],
-            n_rows * local_n, 
+            local_n_rows * local_n_cols, 
             MPI_DOUBLE,
             MAIN_PROCESS,
             SUBMATR_TAG, 
@@ -204,72 +236,97 @@ int distribute_data(double* matrix, double* vector, long int local_n, long int l
             MPI_STATUS_IGNORE
         );
         process_error(error);
-        // print_matr(local_matr, n_rows, local_n, my_rank);
+
+        error = MPI_Recv( 
+            &local_vec[0],
+            local_n_cols, 
+            MPI_DOUBLE,
+            MAIN_PROCESS,
+            SUBVEC_TAG, 
+            MPI_COMM_WORLD, 
+            MPI_STATUS_IGNORE
+        );
+        process_error(error);
     }
 
-    printf("AFTER TRANSPORTATION\n");
+    // printf("AFTER TRANSPORTATION\n");
     
 
     error = MPI_Type_free(&mpi_vec);
-
     process_error(error);
 
-    return 0;
+    return;
 }
 
 
+void gather_local_results(double* local_res, int comm_sz_rows, int comm_sz_cols, long int n_rows, long int n_cols, int my_rank, MPI_Comm comm, double* result){
+    int local_n_rows = n_rows / comm_sz_rows;
+    // int local_n_cols = n_cols / comm_sz_cols;
+    int comm_sz = comm_sz_rows * comm_sz_cols;
 
-
-int read_nums_from_file(long int n_elems, int local_n, int my_rank, int comm_sz, MPI_Comm comm, double* nums){
-
-    double* vector;
 
     if (my_rank == MAIN_PROCESS){
-        char* body = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
-        build_vector_filename(n_elems, body);
-        char filename[MAX_FILENAME_LENGTH] = "./data/";
-        strcat(filename, body);
-        // printf("Before free\n");
-        free(body);
-        printf("Reading vector from file '%s'...\n", filename);
-
-        vector = (double*) malloc(n_elems * sizeof(double));
-
-        FILE *fp = fopen(filename, "r");
-        if (fp == NULL){ 
-            return -1;
-        }
-
-        for (long int i = 0; i < n_elems; ++i){
-            fscanf(fp, "%lf", &vector[i]); 
+        for (long int i = 0; i < n_rows; ++i){
+            result[i] = 0.0;
         }
     }
 
     int error;
 
-    // printf("%d, %d, %d, %d, %d, %d\n", 
-    //     MPI_SUCCESS, MPI_ERR_BUFFER, MPI_ERR_COMM,
-    //     MPI_ERR_COUNT, MPI_ERR_TYPE, MPI_ERR_OTHER);
+    // MPI_Barrier(MPI_COMM_WORLD);
+    // printf("All here!");
+    
+    if (my_rank != MAIN_PROCESS){
 
+        error = MPI_Send(
+            local_res,
+            local_n_rows,
+            MPI_DOUBLE,
+            MAIN_PROCESS,
+            SUBVEC_TAG,
+            MPI_COMM_WORLD
+        );
+        process_error(error);
 
-    error = MPI_Scatter(
-        vector,
-        local_n,
-        MPI_DOUBLE,
-        nums,
-        local_n,
-        MPI_DOUBLE,
-        MAIN_PROCESS,
-        comm
-    );
+    }
+    else{
+        MPI_Status status;
 
-    process_error(error);
+        double* recv_buf = (double*) malloc(local_n_rows * sizeof(double));
 
-    if (my_rank == MAIN_PROCESS)
-        free(vector);
+        for (int i = 0; i < comm_sz; ++i){
+            int src;
 
-    return 0;
+            if (i != 0){
+                error = MPI_Recv( 
+                    &recv_buf[0],
+                    local_n_rows, 
+                    MPI_DOUBLE,
+                    MPI_ANY_SOURCE,
+                    SUBVEC_TAG, 
+                    MPI_COMM_WORLD, 
+                    &status
+                );
+                process_error(error);
+
+                src = status.MPI_SOURCE;
+            }
+            else {
+                memcpy(&recv_buf[0], local_res, local_n_rows * sizeof(double));
+                src = 0;
+            }
+
+            // printf("src = %d\n", src);
+
+            for (long int j = 0; j < local_n_rows; ++j){
+                // printf("j = %ld\n", j);
+                // printf("cur_index = %ld\n", (src / comm_sz_cols) * local_n_rows + j);
+                result[(src / comm_sz_cols) * local_n_rows + j] += recv_buf[j];
+            }
+        }
+    }
 }
+
 
 
 void multiply_blockwise(double* local_matr, double* nums, long int n_rows, long int local_n, int my_rank, int comm_sz, double* result){
@@ -279,11 +336,6 @@ void multiply_blockwise(double* local_matr, double* nums, long int n_rows, long 
             local_matr[i * local_n + j] *= nums[j]; 
         }
     }
-
-    // if (my_rank == comm_sz - 1){
-    //     print_matr(local_matr, n_rows, local_n, my_rank);
-    //     // printf("n_rows = %ld, local_n = %ld\n", n_rows, local_n);
-    // }
 
     long int n_cols = local_n * comm_sz;
 
@@ -295,9 +347,7 @@ void multiply_blockwise(double* local_matr, double* nums, long int n_rows, long 
         }
         columns[i] = sum;
     } 
-
-    // if (my_rank == comm_sz - 1)
-    //     print_vec(columns, n_rows, my_rank);   
+ 
 
     MPI_Reduce(         // Должны вызывать все процессы
         columns,        // Буфер, который отсылаем
@@ -345,18 +395,24 @@ int main(int argc, char** argv){
         if (all_count % comm_sz != 0){
             printf("\nERROR!!!\n%lld mod %d = %lld. Unable to parallellize task.\n", all_count, comm_sz, all_count % comm_sz);
             return 0;
-        }
+        }        
     }
 
     int* layout = malloc(N_DIVIDERS * sizeof(long int));
     get_2_most_closest_dividers(comm_sz, layout);
     comm_sz_rows = layout[0];
     comm_sz_cols = layout[1];
+    free(layout);
 
     int local_n_rows = n_rows / comm_sz_rows;
     int local_n_cols = n_cols / comm_sz_cols;
 
-    if (my_rank == comm_sz - 1){
+    double* matrix;
+    double* vector;
+    double* result;
+
+
+    if (my_rank == MAIN_PROCESS){
         printf("n_rows = %ld\n", n_rows);
         printf("n_cols = %ld\n", n_cols);
         printf("comm_sz = %d\n", comm_sz);
@@ -365,49 +421,52 @@ int main(int argc, char** argv){
         printf("comm_sz_cols = %d\n", comm_sz_cols);
         printf("local_n_rows = %d\n", local_n_rows);
         printf("local_n_cols = %d\n", local_n_cols);
+
+        matrix = (double*) malloc(n_rows * n_cols * sizeof(double));
+        vector = (double*) malloc(n_cols * sizeof(double));
+        result = (double*) malloc(n_rows * sizeof(double));
+
+
+        if (my_rank == MAIN_PROCESS){
+            error = load_matr(n_rows, n_cols, matrix);
+            if (error == -1){
+                char* filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+                build_matrix_filename(n_rows, n_cols, filename);
+                printf("Unable to locate matrix file '%s'\n", filename);
+                free(filename);
+                return 0;
+            }
+            
+            // print_matr(matrix, n_rows, n_cols, -1);
+        }
+
+        if (my_rank == MAIN_PROCESS){
+            error = load_vec(n_cols, vector);
+            if (error == -1){
+                char* filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
+                build_vector_filename(n_cols, filename);
+                printf("Unable to locate vector file '%s'\n", filename);
+                free(filename);
+                return 0;
+            }
+            
+            // print_vec(vector, n_cols, -1);
+        }
     }
 
 
-
-    double* matrix = (double*) malloc(n_rows * n_cols * sizeof(double));
-    double* vector = (double*) malloc(n_cols * sizeof(double));
     double* local_matr = (double*) malloc(local_n_rows * local_n_cols * sizeof(double));
     double* local_vec = (double*) malloc(local_n_cols * sizeof(double));
-    double* result = (double*) malloc(n_rows * sizeof(double));
-
-
-    if (my_rank == comm_sz - 1){
-        error = load_matr(n_rows, n_cols, matrix);
-        if (error == -1){
-            char* filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
-            build_matrix_filename(n_rows, n_cols, filename);
-            printf("Unable to locate matrix file '%s'\n", filename);
-            free(filename);
-            return 0;
-        }
-        
-        print_matr(matrix, n_rows, n_cols, -1);
-    }
-
-    if (my_rank == comm_sz - 1){
-        error = load_vec(n_cols, vector);
-        if (error == -1){
-            char* filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
-            build_vector_filename(n_cols, filename);
-            printf("Unable to locate vector file '%s'\n", filename);
-            free(filename);
-            return 0;
-        }
-        
-        print_vec(vector, n_cols, -1);
-    }
-
+    double* local_res = (double*) malloc(local_n_rows * sizeof(double));  
 
 
     MPI_Barrier(MPI_COMM_WORLD);
     start = MPI_Wtime();
-
-    // multiply_blockwise(local_matr, nums, n_rows, local_n, my_rank, comm_sz, result);
+    
+    distribute_data(matrix, vector, comm_sz_rows, comm_sz_cols, n_rows, 
+                    n_cols, my_rank, MPI_COMM_WORLD, local_matr, local_vec);
+    multiply_rowwise(local_matr, local_vec, local_n_rows, local_n_cols, local_res);
+    gather_local_results(local_res, comm_sz_rows, comm_sz_cols, n_rows, n_cols, my_rank, MPI_COMM_WORLD, result);
 
     MPI_Barrier(MPI_COMM_WORLD);
     finish = MPI_Wtime();
@@ -422,10 +481,13 @@ int main(int argc, char** argv){
 
 
     free(local_matr);
-    free(result);
-    free(vector);
     free(local_vec);
-    free(matrix);
+    free(local_res);
+    if (my_rank == MAIN_PROCESS){
+        free(result);
+        free(vector);
+        free(matrix);
+    }
 
     MPI_Finalize();
 
