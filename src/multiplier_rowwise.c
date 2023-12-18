@@ -54,6 +54,7 @@ void distribute_data (double* matrix, double* vector, long int n_rows, long int 
 
 int main(int argc, char** argv){
     int error;
+    double sum_time;
 
     long int n_rows = strtol(argv[1], NULL, 10);
     long int n_cols = strtol(argv[2], NULL, 10);
@@ -75,7 +76,7 @@ int main(int argc, char** argv){
         }
 
         char* new_file_name = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
-        sprintf(new_file_name, "rowwise_%ld_%ld.csv", n_rows, n_cols);
+        sprintf(new_file_name, "./data/out/rowwise.csv");
 
         if (fopen(new_file_name, "r") == NULL){
             FILE* fp = fopen(new_file_name, "w");
@@ -83,8 +84,11 @@ int main(int argc, char** argv){
                 printf("Unable to create output file.\n");
                 return 0;
             }
-            fprint(fp, "n_rows, n_cols, n_processes, time\n");
+            fprintf(fp, "n_rows, n_cols, n_processes, time\n");
+            fclose(fp);
         }
+
+        sum_time = 0;
     }
 
     long int local_n = n_rows / comm_sz;
@@ -139,23 +143,23 @@ int main(int argc, char** argv){
     double* local_matr = (double*) malloc(local_n * n_cols * sizeof(double));
     double* local_result = (double*) malloc(local_n * sizeof(double));
 
-    distribute_data(matrix, vector, n_rows, n_cols, local_n, my_rank, comm_sz, MPI_COMM_WORLD, local_matr);
-    // print_matr(local_matr, local_n, n_cols, my_rank);
-    // print_vec(vector, n_cols, my_rank);
+    for (int i = 0; i < 100; i++){
+        MPI_Barrier(MPI_COMM_WORLD);
+        start = MPI_Wtime();
 
-    MPI_Barrier(MPI_COMM_WORLD);
-    start = MPI_Wtime();
+        distribute_data(matrix, vector, n_rows, n_cols, local_n, my_rank, comm_sz, MPI_COMM_WORLD, local_matr);
+        multiply_std_rowwise(local_matr, vector, local_n, n_cols, local_result);
+        MPI_Gather(local_result, local_n, MPI_DOUBLE, result, local_n, MPI_DOUBLE, MAIN_PROCESS, MPI_COMM_WORLD);
 
-    multiply_std_rowwise(local_matr, vector, local_n, n_cols, local_result);
-    // print_matr(local_matr, local_n, n_cols, my_rank);
-    // print_vec(local_result, local_n, my_rank);
+        MPI_Barrier(MPI_COMM_WORLD);
+        finish = MPI_Wtime();
 
-    MPI_Barrier(MPI_COMM_WORLD);
-    finish = MPI_Wtime();
-    double local_elapsed = finish - start;
-    MPI_Reduce(&local_elapsed, &elapsed, 1, MPI_DOUBLE, MPI_MAX, MAIN_PROCESS, MPI_COMM_WORLD);
+        double local_elapsed = finish - start;
+        MPI_Reduce(&local_elapsed, &elapsed, 1, MPI_DOUBLE, MPI_MAX, MAIN_PROCESS, MPI_COMM_WORLD);
 
-    MPI_Gather(local_result, local_n, MPI_DOUBLE, result, local_n, MPI_DOUBLE, MAIN_PROCESS, MPI_COMM_WORLD);
+        if (my_rank == MAIN_PROCESS)
+            sum_time += elapsed;
+    }
 
     free(vector);
     free(local_matr);
@@ -164,18 +168,18 @@ int main(int argc, char** argv){
     MPI_Finalize();
 
     if (my_rank == MAIN_PROCESS){
-        print_vec(result, n_rows, -1);
+        // print_vec(result, n_rows, -1);
         // printf("Elapsed time: %f s\n", elapsed);
         char* new_filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
-        sprintf(new_filename, "rowwise_%ld_%ld.csv", n_rows, n_cols);
+        sprintf(new_filename, "./data/out/rowwise.csv");
 
-        FILE* fp = fopen(new_filename, "a+");
+        FILE* fp = fopen(new_filename, "a");
         if (fp == NULL){
             printf("Unable to open output file.\n");
             return 0;
         }
-        fprint(fp, "n_rows, n_cols, n_processes, time\n");
-        fprintf(fp, "%ld, %ld, %d, %lf\n");
+        fprintf(fp, "%ld, %ld, %d, %lf\n", n_rows, n_cols, comm_sz, sum_time / 100);
+        fclose(fp);
 
         free(matrix);
         free(result);

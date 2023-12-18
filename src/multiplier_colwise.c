@@ -90,7 +90,7 @@ void distribute_data (double* matrix, double* vector, long int n_rows, long int 
     // MPI_Barrier(MPI_COMM_WORLD);
     // printf("All here!\n");
     
-    printf("BEFORE TRANSPORTATION\n");
+    // printf("BEFORE TRANSPORTATION\n");
 
     if (my_rank == MAIN_PROCESS){
 
@@ -176,7 +176,7 @@ void distribute_data (double* matrix, double* vector, long int n_rows, long int 
     process_error(error);
 
 
-    printf("AFTER TRANSPORTATION\n");
+    // printf("AFTER TRANSPORTATION\n");
     
 
     error = MPI_Type_free(&mpi_vec);
@@ -239,8 +239,8 @@ void multiply_colwise(double* local_matr, double* local_vec, long int n_rows, lo
 
 
 int main(int argc, char** argv){
-
     int error;
+    double sum_time;
 
     long int n_rows = strtol(argv[1], NULL, 10);
     long int n_cols = strtol(argv[2], NULL, 10);
@@ -262,7 +262,7 @@ int main(int argc, char** argv){
         }
 
         char* new_file_name = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
-        sprintf(new_file_name, "colwise_%ld_%ld.csv", n_rows, n_cols);
+        sprintf(new_file_name, "./data/out/colwise.csv");
 
         if (fopen(new_file_name, "r") == NULL){
             FILE* fp = fopen(new_file_name, "w");
@@ -270,10 +270,11 @@ int main(int argc, char** argv){
                 printf("Unable to create output file.\n");
                 return 0;
             }
-            fprint(fp, "n_rows, n_cols, n_processes, time\n");
+            fprintf(fp, "n_rows, n_cols, n_processes, time\n");
+            fclose(fp);
         }
 
-
+        sum_time = 0;
     }
 
     long int local_n = n_cols / comm_sz;
@@ -327,25 +328,22 @@ int main(int argc, char** argv){
     double* local_matr = malloc(local_n * n_rows * sizeof(double));
     double* local_vec = malloc(local_n * sizeof(double));
 
+    for (int i = 0; i < 100; i++){
+        MPI_Barrier(MPI_COMM_WORLD);
+        start = MPI_Wtime();
 
-    distribute_data(matrix, vector, n_rows, n_cols, local_n, my_rank, comm_sz, MPI_COMM_WORLD, local_matr, local_vec);
-    // if (my_rank == comm_sz - 1){
-    //     print_matr(local_matr, n_rows, local_n, my_rank);
-    //     print_vec(local_vec, local_n, my_rank);
-    // } 
+        distribute_data(matrix, vector, n_rows, n_cols, local_n, my_rank, comm_sz, MPI_COMM_WORLD, local_matr, local_vec);
+        multiply_colwise(local_matr, local_vec, n_rows, local_n, my_rank, comm_sz, result);
 
-    MPI_Barrier(MPI_COMM_WORLD);
-    start = MPI_Wtime();
+        MPI_Barrier(MPI_COMM_WORLD);
+        finish = MPI_Wtime();
 
-    printf("BEFORE MULTIPLICATON\n");
-
-    multiply_colwise(local_matr, local_vec, n_rows, local_n, my_rank, comm_sz, result);
-
-    MPI_Barrier(MPI_COMM_WORLD);
-    finish = MPI_Wtime();
-    double local_elapsed = finish - start;
-    MPI_Reduce(&local_elapsed, &elapsed, 1, MPI_DOUBLE, MPI_MAX, MAIN_PROCESS, MPI_COMM_WORLD);
-
+        double local_elapsed = finish - start;
+        MPI_Reduce(&local_elapsed, &elapsed, 1, MPI_DOUBLE, MPI_MAX, MAIN_PROCESS, MPI_COMM_WORLD);
+    
+        if (my_rank == MAIN_PROCESS)
+            sum_time += elapsed;
+    }
 
     free(local_matr);
     free(local_vec);
@@ -353,20 +351,20 @@ int main(int argc, char** argv){
     MPI_Finalize();
 
     if (my_rank == MAIN_PROCESS){
-        printf("RESULT:\n");
-        print_vec(result, n_rows, -1);
-        printf("Elapsed time: %f s\n", elapsed);
+        // print_vec(result, n_rows, -1);
+        // printf("Elapsed time: %f s\n", elapsed);
 
         char* new_filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
-        sprintf(new_filename, "colwise_%ld_%ld.csv", n_rows, n_cols);
+        sprintf(new_filename, "./data/out/colwise.csv");
 
         FILE* fp = fopen(new_filename, "a+");
         if (fp == NULL){
             printf("Unable to open output file.\n");
             return 0;
         }
-        fprint(fp, "n_rows, n_cols, n_processes, time\n");
-        fprintf(fp, "%ld, %ld, %d, %lf\n");
+        fprintf(fp, "%ld, %ld, %d, %lf\n", n_rows, n_cols, comm_sz, sum_time / 100);
+
+        fclose(fp);
 
         free(result);
         free(vector);
