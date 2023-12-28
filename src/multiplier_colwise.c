@@ -24,78 +24,7 @@ void distribute_data (double* matrix, double* vector, long int n_rows, long int 
 
     int error;
 
-    // double* packed_matrix = (double*) malloc(n_rows * n_cols * sizeof(double));
-
-    // int position = 0;
-
-    // int pack_size;
-    // MPI_Pack_size(local_n, mpi_vec, MPI_COMM_WORLD, &pack_size);
-
-
-    // if (my_rank == MAIN_PROCESS){
-    //     // printf("Packing...\n");
-    //     // MPI_Pack(
-    //     //     &matrix[0],
-    //     //     local_n,
-    //     //     mpi_vec,
-    //     //     packed_matrix,
-    //     //     pack_size,
-    //     //     &position,
-    //     //     MPI_COMM_WORLD
-    //     // );
-
-    //     printf("Sending...\n");
-    //     error = MPI_Scatter(
-    //         &matrix[0],
-    //         1,
-    //         mpi_vec,
-    //         local_matr,
-    //         1,
-    //         mpi_vec,
-    //         MAIN_PROCESS,
-    //         comm
-    //     );
-
-    // }
-    // else {
-    //     void* recv_buffer = malloc(n_rows * n_cols * sizeof(double));
-
-    //     printf("Receiving...\n");
-    //     error = MPI_Scatter(
-    //         NULL,
-    //         -1,
-    //         MPI_PACKED,
-    //         &recv_buffer,
-    //         1,
-    //         MPI_PACKED,
-    //         MAIN_PROCESS,
-    //         comm
-    //     );
-        
-    //     printf("Unpacking...\n");
-    //     MPI_Unpack(
-    //         recv_buffer,
-    //         pack_size,
-    //         &position,
-    //         &local_matr[0],
-    //         local_n,
-    //         mpi_vec,
-    //         MPI_COMM_WORLD
-    //     );
-
-    //     print_matr(local_matr, n_rows, local_n, my_rank);
-
-    // }
-
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // printf("All here!\n");
-    
-    // printf("BEFORE TRANSPORTATION\n");
-
     if (my_rank == MAIN_PROCESS){
-
-        // double* packed_matrix = (double*) malloc(n_rows * local_n * sizeof(double));
-
         int position;
 
         int pack_size;
@@ -105,7 +34,6 @@ void distribute_data (double* matrix, double* vector, long int n_rows, long int 
 
             position = 0;
 
-            // printf("Packing (%d)...\n", i);
             error = MPI_Pack(
                 &matrix[i * local_n],
                 1,
@@ -117,7 +45,6 @@ void distribute_data (double* matrix, double* vector, long int n_rows, long int 
             );
             process_error(error);
 
-            // printf("Sending (%d)...\n", i);
             error = MPI_Send(
                 local_matr,
                 n_rows * local_n,
@@ -128,8 +55,6 @@ void distribute_data (double* matrix, double* vector, long int n_rows, long int 
             );
             process_error(error);
         }
-
-        // print_matr(matrix, n_rows, n_cols, -1);
 
         position = 0;
 
@@ -144,11 +69,8 @@ void distribute_data (double* matrix, double* vector, long int n_rows, long int 
         );
         process_error(error);
 
-        // print_matr(local_matr, n_rows, local_n, -100);
-
     }
     else {
-        // printf("Receiving (%d)...\n", my_rank);
         error = MPI_Recv( 
             &local_matr[0],
             n_rows * local_n, 
@@ -159,9 +81,7 @@ void distribute_data (double* matrix, double* vector, long int n_rows, long int 
             MPI_STATUS_IGNORE
         );
         process_error(error);
-        // print_matr(local_matr, n_rows, local_n, my_rank);
     }
-
 
     error = MPI_Scatter(
         vector,
@@ -174,10 +94,6 @@ void distribute_data (double* matrix, double* vector, long int n_rows, long int 
         comm
     );
     process_error(error);
-
-
-    // printf("AFTER TRANSPORTATION\n");
-    
 
     error = MPI_Type_free(&mpi_vec);
     process_error(error);
@@ -194,11 +110,6 @@ void multiply_colwise(double* local_matr, double* local_vec, long int n_rows, lo
         }
     }
 
-    // if (my_rank == comm_sz - 1){
-    //     print_matr(local_matr, n_rows, local_n, my_rank);
-    //     // printf("n_rows = %ld, local_n = %ld\n", n_rows, local_n);
-    // }
-
     long int n_cols = local_n * comm_sz;
 
     double* columns = (double*) malloc(n_cols * sizeof(double));
@@ -210,28 +121,9 @@ void multiply_colwise(double* local_matr, double* local_vec, long int n_rows, lo
         columns[i] = sum;
     } 
 
-    // if (my_rank == comm_sz - 1)
-    //     print_vec(columns, n_rows, my_rank);   
-
-    MPI_Reduce(         // Должны вызывать все процессы
-        columns,        // Буфер, который отсылаем
-        result,         // Буфер ответа. Важен только тот, который идёт во 0-й поток
-        n_rows,         // Количество чисел
-        MPI_DOUBLE,     // 
-        MPI_SUM,        // Как агрегируем
-        MAIN_PROCESS,              // Куда отправляем результат
-        MPI_COMM_WORLD
-    );
+    MPI_Reduce(columns, result, n_rows, MPI_DOUBLE, MPI_SUM, MAIN_PROCESS, MPI_COMM_WORLD);
 
     free(columns);
-
-
-    // double* matrix = (double*) malloc(n_rows * n_cols * sizeof(double));
-
-    // MPI_Gather(local_matr, n_rows * local_n, MPI_DOUBLE, matrix, n_rows * local_n, MPI_DOUBLE, MAIN_PROCESS, MPI_COMM_WORLD);
-
-    // if (my_rank == MAIN_PROCESS)
-    //     print_matr(matrix, n_rows, n_cols, -1);
 
     return;
 }
@@ -306,8 +198,6 @@ int main(int argc, char** argv){
                 free(filename);
                 return 0;
             }
-            
-            // print_matr(matrix, n_rows, n_cols, -1);
         }
 
         if (my_rank == MAIN_PROCESS){
@@ -319,11 +209,8 @@ int main(int argc, char** argv){
                 free(filename);
                 return 0;
             }
-            
-            // print_vec(vector, n_cols, -1);
         }
     }
-
 
     double* local_matr = malloc(local_n * n_rows * sizeof(double));
     double* local_vec = malloc(local_n * sizeof(double));
@@ -351,8 +238,6 @@ int main(int argc, char** argv){
     MPI_Finalize();
 
     if (my_rank == MAIN_PROCESS){
-        // print_vec(result, n_rows, -1);
-        // printf("Elapsed time: %f s\n", elapsed);
 
         char* new_filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
         sprintf(new_filename, "./data/out/colwise.csv");
@@ -370,7 +255,6 @@ int main(int argc, char** argv){
         free(vector);
         free(matrix);
     }
-
 
     return 0;
 }

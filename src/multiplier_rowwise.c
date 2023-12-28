@@ -9,7 +9,6 @@
 #include "constants.h"
 
 
-
 void distribute_data (double* matrix, double* vector, long int n_rows, long int n_cols, long int local_n, int my_rank, int comm_sz, MPI_Comm comm, double* local_matr){
     int error;
 
@@ -97,7 +96,6 @@ int main(int argc, char** argv){
     double* result;
     double* vector = (double*) malloc(n_cols * sizeof(double));
 
-
     if (my_rank == MAIN_PROCESS){
         printf("n_rows = %ld\n", n_rows);
         printf("n_cols = %ld\n", n_cols);
@@ -108,7 +106,6 @@ int main(int argc, char** argv){
         matrix = (double*) malloc(n_rows * n_cols * sizeof(double));
         result = (double*) malloc(n_rows * sizeof(double));
 
-
         if (my_rank == MAIN_PROCESS){
             error = load_matr(n_rows, n_cols, matrix);
             if (error == -1){
@@ -118,8 +115,6 @@ int main(int argc, char** argv){
                 free(filename);
                 return 0;
             }
-            
-            // print_matr(matrix, n_rows, n_cols, -1);
         }
 
         if (my_rank == MAIN_PROCESS){
@@ -131,14 +126,8 @@ int main(int argc, char** argv){
                 free(filename);
                 return 0;
             }
-            
-            // print_vec(vector, n_cols, -1);
         }
     }
-    // if (my_rank == MAIN_PROCESS){
-    //     print_matr(matrix, n_rows, n_cols, my_rank);
-    //     print_vec(vector, n_cols, my_rank);
-    // }
 
     double* local_matr = (double*) malloc(local_n * n_cols * sizeof(double));
     double* local_result = (double*) malloc(local_n * sizeof(double));
@@ -168,8 +157,6 @@ int main(int argc, char** argv){
     MPI_Finalize();
 
     if (my_rank == MAIN_PROCESS){
-        // print_vec(result, n_rows, -1);
-        // printf("Elapsed time: %f s\n", elapsed);
         char* new_filename = (char*) malloc(MAX_FILENAME_LENGTH * sizeof(char));
         sprintf(new_filename, "./data/out/rowwise.csv");
 

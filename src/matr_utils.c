@@ -11,10 +11,12 @@ void build_matrix_filename(long int n_rows, long int n_cols, char* filename){
     return;
 }
 
+
 void build_vector_filename(long int n_elems, char* filename){
     sprintf(filename, "vector_%ld.txt", n_elems);
     return;
 }
+
 
 void print_matr(double* matr, long int n_rows, long int n_cols, int proc_num){
     printf("%d\tMATRIX (%ld x %ld):\n", proc_num, n_rows, n_cols);
@@ -26,6 +28,7 @@ void print_matr(double* matr, long int n_rows, long int n_cols, int proc_num){
     }
     return;
 }
+
 
 void print_vec(double* vec, long int n_elems, int proc_num){
     printf("%d\tVECTOR:\n", proc_num);
